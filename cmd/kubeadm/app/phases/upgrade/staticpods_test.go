@@ -20,7 +20,6 @@ import (
 	"crypto/sha256"
 	"crypto/x509"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"os"
 	"path/filepath"
@@ -62,7 +61,7 @@ apiVersion: %s
 kind: InitConfiguration
 nodeRegistration:
   name: foo
-  criSocket: ""
+  criSocket: %s
 localAPIEndpoint:
   advertiseAddress: 192.168.2.2
   bindPort: 6443
@@ -81,13 +80,13 @@ etcd:
   local:
     dataDir: %%s
     image: ""
-imageRepository: k8s.gcr.io
+imageRepository: registry.k8s.io
 kubernetesVersion: %%s
 networking:
   dnsDomain: cluster.local
   podSubnet: ""
   serviceSubnet: 10.96.0.0/12
-`, kubeadmapiv1.SchemeGroupVersion.String())
+`, kubeadmapiv1.SchemeGroupVersion.String(), constants.UnknownCRISocket)
 
 // fakeWaiter is a fake apiclient.Waiter that returns errors it was initialized with
 type fakeWaiter struct {
@@ -154,7 +153,7 @@ type fakeStaticPodPathManager struct {
 }
 
 func NewFakeStaticPodPathManager(moveFileFunc func(string, string) error) (StaticPodPathManager, error) {
-	kubernetesDir, err := ioutil.TempDir("", "kubeadm-pathmanager-")
+	kubernetesDir, err := os.MkdirTemp("", "kubeadm-pathmanager-")
 	if err != nil {
 		return nil, errors.Wrapf(err, "couldn't create a temporary directory for the upgrade")
 	}
@@ -252,8 +251,16 @@ func (c fakeTLSEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
+func (c fakeTLSEtcdClient) AddMemberAsLearner(name string, peerAddrs string) ([]etcdutil.Member, error) {
+	return []etcdutil.Member{}, nil
+}
+
 func (c fakeTLSEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
+}
+
+func (c fakeTLSEtcdClient) MemberPromote(learnerID uint64) error {
+	return nil
 }
 
 func (c fakeTLSEtcdClient) GetMemberID(peerURL string) (uint64, error) {
@@ -287,8 +294,16 @@ func (c fakePodManifestEtcdClient) ListMembers() ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
 }
 
+func (c fakePodManifestEtcdClient) AddMemberAsLearner(name string, peerAddrs string) ([]etcdutil.Member, error) {
+	return []etcdutil.Member{}, nil
+}
+
 func (c fakePodManifestEtcdClient) AddMember(name string, peerAddrs string) ([]etcdutil.Member, error) {
 	return []etcdutil.Member{}, nil
+}
+
+func (c fakePodManifestEtcdClient) MemberPromote(learnerID uint64) error {
+	return nil
 }
 
 func (c fakePodManifestEtcdClient) GetMemberID(peerURL string) (uint64, error) {
@@ -453,12 +468,12 @@ func TestStaticPodControlPlane(t *testing.T) {
 			defer os.RemoveAll(pathMgr.(*fakeStaticPodPathManager).KubernetesDir())
 			tmpKubernetesDir := pathMgr.(*fakeStaticPodPathManager).KubernetesDir()
 
-			tempCertsDir, err := ioutil.TempDir("", "kubeadm-certs")
+			tempCertsDir, err := os.MkdirTemp("", "kubeadm-certs")
 			if err != nil {
 				t.Fatalf("couldn't create temporary certificates directory: %v", err)
 			}
 			defer os.RemoveAll(tempCertsDir)
-			tmpEtcdDataDir, err := ioutil.TempDir("", "kubeadm-etcd-data")
+			tmpEtcdDataDir, err := os.MkdirTemp("", "kubeadm-etcd-data")
 			if err != nil {
 				t.Fatalf("couldn't create temporary etcd data directory: %v", err)
 			}
@@ -573,7 +588,7 @@ func TestStaticPodControlPlane(t *testing.T) {
 func getAPIServerHash(dir string) (string, error) {
 	manifestPath := constants.GetStaticPodFilepath(constants.KubeAPIServer, dir)
 
-	fileBytes, err := ioutil.ReadFile(manifestPath)
+	fileBytes, err := os.ReadFile(manifestPath)
 	if err != nil {
 		return "", err
 	}
@@ -589,7 +604,7 @@ func getConfig(version, certsDir, etcdDataDir string) (*kubeadmapi.InitConfigura
 }
 
 func getTempDir(t *testing.T, name string) (string, func()) {
-	dir, err := ioutil.TempDir(os.TempDir(), name)
+	dir, err := os.MkdirTemp(os.TempDir(), name)
 	if err != nil {
 		t.Fatalf("couldn't make temporary directory: %v", err)
 	}
@@ -942,7 +957,7 @@ func TestGetPathManagerForUpgrade(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Use a temporary directory
-			tmpdir, err := ioutil.TempDir("", "TestGetPathManagerForUpgrade")
+			tmpdir, err := os.MkdirTemp("", "TestGetPathManagerForUpgrade")
 			if err != nil {
 				t.Fatalf("unexpected error making temporary directory: %v", err)
 			}
@@ -998,15 +1013,15 @@ metadata:
 spec:
   containers:
   - name: etcd
-    image: k8s.gcr.io/etcd:` + expectedEtcdVersion
+    image: registry.k8s.io/etcd:` + expectedEtcdVersion
 
-	manifestsDir, err := ioutil.TempDir("", "GetEtcdImageTagFromStaticPod-test-manifests")
+	manifestsDir, err := os.MkdirTemp("", "GetEtcdImageTagFromStaticPod-test-manifests")
 	if err != nil {
 		t.Fatalf("Unable to create temporary directory: %v", err)
 	}
 	defer os.RemoveAll(manifestsDir)
 
-	if err = ioutil.WriteFile(constants.GetStaticPodFilepath(constants.Etcd, manifestsDir), []byte(etcdStaticPod), 0644); err != nil {
+	if err = os.WriteFile(constants.GetStaticPodFilepath(constants.Etcd, manifestsDir), []byte(etcdStaticPod), 0644); err != nil {
 		t.Fatalf("Unable to create test static pod manifest: %v", err)
 	}
 

@@ -20,9 +20,8 @@ import (
 	"crypto"
 	"crypto/tls"
 	"crypto/x509"
-	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
 	"testing"
 
 	certutil "k8s.io/client-go/util/cert"
@@ -145,7 +144,7 @@ func TestMakeCertTree(t *testing.T) {
 }
 
 func TestCreateCertificateChain(t *testing.T) {
-	dir, err := ioutil.TempDir("", t.Name())
+	dir, err := os.MkdirTemp("", t.Name())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -193,8 +192,8 @@ func TestCreateCertificateChain(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	caCert, _ := parseCertAndKey(path.Join(dir, "test-ca"), t)
-	daughterCert, _ := parseCertAndKey(path.Join(dir, "test-daughter"), t)
+	caCert, _ := parseCertAndKey(filepath.Join(dir, "test-ca"), t)
+	daughterCert, _ := parseCertAndKey(filepath.Join(dir, "test-daughter"), t)
 
 	pool := x509.NewCertPool()
 	pool.AddCert(caCert)

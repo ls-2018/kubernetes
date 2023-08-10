@@ -87,7 +87,7 @@ go build -o sample-controller .
 ./sample-controller -kubeconfig=$HOME/.kube/config
 
 # create a CustomResourceDefinition
-kubectl create -f artifacts/examples/crd.yaml
+kubectl create -f artifacts/examples/crd-status-subresource.yaml
 
 # create a custom resource of type Foo
 kubectl create -f artifacts/examples/example-foo.yaml
@@ -125,6 +125,8 @@ type User struct {
 	Password string `json:"password"`
 }
 ```
+
+Note, the JSON tag `json:` is required on all user facing fields within your type. Typically API types contain only user facing fields. When the JSON tag is omitted from the field, Kubernetes generators consider the field to be internal and will not expose the field in their generated external output. For example, this means that the field would not be included in a generated CRD schema.
 
 ## Validation
 

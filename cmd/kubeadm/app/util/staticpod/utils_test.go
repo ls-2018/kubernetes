@@ -17,7 +17,7 @@ limitations under the License.
 package staticpod
 
 import (
-	"io/ioutil"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -392,6 +392,8 @@ func TestGetEtcdProbeEndpoint(t *testing.T) {
 }
 
 func TestComponentPod(t *testing.T) {
+	// priority value for system-node-critical class
+	priority := int32(2000001000)
 	var tests = []struct {
 		name     string
 		expected v1.Pod
@@ -419,6 +421,7 @@ func TestComponentPod(t *testing.T) {
 							Name: "foo",
 						},
 					},
+					Priority:          &priority,
 					PriorityClassName: "system-node-critical",
 					HostNetwork:       true,
 					Volumes:           []v1.Volume{},
@@ -627,6 +630,35 @@ spec:
   - image: gcr.io/google_containers/etcd-amd64:3.1.11
 status: {}
 `
+	validPodWithDifferentFieldsOrder = `
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    tier: control-plane
+    component: etcd
+  name: etcd
+  namespace: kube-system
+spec:
+  containers:
+  - image: gcr.io/google_containers/etcd-amd64:3.1.11
+status: {}
+`
+	validPod2 = `
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    component: etcd
+    tier: control-plane
+  name: etcd
+  namespace: kube-system
+spec:
+  containers:
+  - image: gcr.io/google_containers/etcd-amd64:3.1.12
+status: {}
+`
+
 	invalidPod = `---{ broken yaml @@@`
 )
 
@@ -664,7 +696,7 @@ func TestReadStaticPodFromDisk(t *testing.T) {
 
 			manifestPath := filepath.Join(tmpdir, "pod.yaml")
 			if rt.writeManifest {
-				err := ioutil.WriteFile(manifestPath, []byte(rt.podYaml), 0644)
+				err := os.WriteFile(manifestPath, []byte(rt.podYaml), 0644)
 				if err != nil {
 					t.Fatalf("Failed to write pod manifest\n%s\n\tfatal error: %v", rt.description, err)
 				}
@@ -698,8 +730,14 @@ func TestManifestFilesAreEqual(t *testing.T) {
 			expectErr:      false,
 		},
 		{
+			description:    "manifests are equal, ignore different fields order",
+			podYamls:       []string{validPod, validPodWithDifferentFieldsOrder},
+			expectedResult: true,
+			expectErr:      false,
+		},
+		{
 			description:    "manifests are not equal",
-			podYamls:       []string{validPod, validPod + "\n"},
+			podYamls:       []string{validPod, validPod2},
 			expectedResult: false,
 			expectErr:      false,
 		},
@@ -726,7 +764,7 @@ func TestManifestFilesAreEqual(t *testing.T) {
 			for i := 0; i < 2; i++ {
 				if rt.podYamls[i] != "" {
 					manifestPath := filepath.Join(tmpdir, strconv.Itoa(i)+".yaml")
-					err := ioutil.WriteFile(manifestPath, []byte(rt.podYamls[i]), 0644)
+					err := os.WriteFile(manifestPath, []byte(rt.podYamls[i]), 0644)
 					if err != nil {
 						t.Fatalf("Failed to write manifest file\n%s\n\tfatal error: %v", rt.description, err)
 					}
@@ -808,7 +846,7 @@ func TestPatchStaticPod(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			tempDir, err := ioutil.TempDir("", "patch-files")
+			tempDir, err := os.MkdirTemp("", "patch-files")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -816,13 +854,13 @@ func TestPatchStaticPod(t *testing.T) {
 
 			for _, file := range tc.files {
 				filePath := filepath.Join(tempDir, file.name)
-				err := ioutil.WriteFile(filePath, []byte(file.data), 0644)
+				err := os.WriteFile(filePath, []byte(file.data), 0644)
 				if err != nil {
 					t.Fatalf("could not write temporary file %q", filePath)
 				}
 			}
 
-			pod, err := PatchStaticPod(tc.pod, tempDir, ioutil.Discard)
+			pod, err := PatchStaticPod(tc.pod, tempDir, io.Discard)
 			if (err != nil) != tc.expectedError {
 				t.Fatalf("expected error: %v, got: %v, error: %v", tc.expectedError, (err != nil), err)
 			}

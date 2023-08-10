@@ -21,7 +21,9 @@ import (
 	"testing"
 
 	"github.com/vmware/govmomi"
+	"github.com/vmware/govmomi/object"
 	"github.com/vmware/govmomi/simulator"
+	"github.com/vmware/govmomi/vim25/types"
 )
 
 func TestUtils(t *testing.T) {
@@ -70,72 +72,92 @@ func TestUtils(t *testing.T) {
 	}
 }
 
-func TestIsvCenter70update1Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("7.0.1", "7.0.1.1")
-	if err != nil {
-		t.Fatal(err)
+func TestIsvCenterNotSupported(t *testing.T) {
+	type testsData struct {
+		vcVersion      string
+		vcAPIVersion   string
+		isNotSupported bool
 	}
-	if vcdeprecated {
-		t.Fatal("vSphere 7.0 update1 should not be deprecated")
+	testdataArray := []testsData{
+		{"8.0.0", "8.0.0.0", false},
+		{"7.0.3", "7.0.3.0", false},
+		{"7.0.2", "7.0.2.0", false},
+		{"7.0.1", "7.0.1.1", true},
+		{"7.0.0", "7.0.0.0", true},
+		{"6.7.0", "6.7.3", true},
+		{"6.7.0", "6.7", true},
+		{"6.7.0", "6.7.2", true},
+		{"6.7.0", "6.7.1", true},
+		{"6.5.0", "6.5", true},
+	}
+
+	for _, test := range testdataArray {
+		notsupported, err := isvCenterNotSupported(test.vcVersion, test.vcAPIVersion)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if notsupported != test.isNotSupported {
+			t.Fatalf("test failed for vc version: %q and vc API version: %q",
+				test.vcVersion, test.vcAPIVersion)
+		} else {
+			t.Logf("test for vc version: %q and vc API version: %q passed. Is Not Supported : %v",
+				test.vcAPIVersion, test.vcAPIVersion, notsupported)
+		}
 	}
 }
 
-func TestIsvCenter70Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("7.0.0", "7.0.0.0")
-	if err != nil {
-		t.Fatal(err)
+func TestGetNextUnitNumber(t *testing.T) {
+	type testData struct {
+		name        string
+		deviceList  object.VirtualDeviceList
+		expectValue int32
+		expectError bool
 	}
-	if vcdeprecated {
-		t.Fatal("vSphere 7.0 should not be deprecated")
+	tests := []testData{
+		{
+			name:        "should return 3 when devices 0-2 taken",
+			deviceList:  generateVirtualDeviceList([]int32{0, 1, 2}),
+			expectValue: 3,
+		},
+		{
+			name:        "should return 0 when devices 1-3 taken",
+			deviceList:  generateVirtualDeviceList([]int32{1, 2, 3}),
+			expectValue: 0,
+		},
+		{
+			name:        "should return error when no slots available",
+			deviceList:  generateVirtualDeviceList([]int32{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}),
+			expectValue: -1,
+			expectError: true,
+		},
+		{
+			name:        "should ignore invalid UnitNumber in device list",
+			deviceList:  generateVirtualDeviceList([]int32{0, 1, 16}),
+			expectValue: 2,
+		},
+	}
+
+	controller := &types.VirtualController{}
+	for _, test := range tests {
+		val, err := getNextUnitNumber(test.deviceList, controller)
+		if err != nil && !test.expectError {
+			t.Fatalf("%s: unexpected error: %v", test.name, err)
+		}
+		if val != test.expectValue {
+			t.Fatalf("%s: expected value %v but got %v", test.name, test.expectValue, val)
+		}
 	}
 }
 
-func TestIsvCenter67u3Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("6.7.0", "6.7.3")
-	if err != nil {
-		t.Fatal(err)
+func generateVirtualDeviceList(unitNumbers []int32) object.VirtualDeviceList {
+	deviceList := object.VirtualDeviceList{}
+	for _, val := range unitNumbers {
+		unitNum := val
+		dev := &types.VirtualDevice{
+			Key:        unitNum,
+			UnitNumber: &unitNum,
+		}
+		deviceList = append(deviceList, dev)
 	}
-	if vcdeprecated {
-		t.Fatal("vSphere 67u3 should not be deprecated")
-	}
-}
-
-func TestIsvCenter67Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("6.7.0", "6.7")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !vcdeprecated {
-		t.Fatal("vSphere 6.7 should be deprecated")
-	}
-}
-
-func TestIsvCenter67u2Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("6.7.0", "6.7.2")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !vcdeprecated {
-		t.Fatal("vSphere 6.7 update 2 should be deprecated")
-	}
-}
-
-func TestIsvCenter67u1Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("6.7.0", "6.7.1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !vcdeprecated {
-		t.Fatal("vSphere 6.7 update 1 should be deprecated")
-	}
-}
-
-func TestIsvCenter65Deprecated(t *testing.T) {
-	vcdeprecated, err := isvCenterDeprecated("6.5.0", "6.5")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !vcdeprecated {
-		t.Fatal("vSphere 6.5 should be deprecated")
-	}
+	return deviceList
 }

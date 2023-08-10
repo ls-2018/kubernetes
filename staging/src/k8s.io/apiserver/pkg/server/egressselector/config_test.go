@@ -23,6 +23,8 @@ import (
 	"reflect"
 	"testing"
 
+	utiltesting "k8s.io/client-go/util/testing"
+
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apiserver/pkg/apis/apiserver"
 )
@@ -244,7 +246,7 @@ spec:
           hostPath:
             path: /etc/srv/kubernetes/pki/konnectivity-agent
       containers:
-        - image: k8s.gcr.io/proxy-agent:v0.0.3
+        - image: registry.k8s.io/proxy-agent:v0.0.3
           name: proxy-agent
           command: ["/proxy-agent"]
           args: ["--caCert=/etc/srv/kubernetes/pki/proxy-agent/ca.crt", "--agentCert=/etc/srv/kubernetes/pki/proxy-agent/client.crt", "--agentKey=/etc/srv/kubernetes/pki/proxy-agent/client.key", "--proxyServerHost=127.0.0.1", "--proxyServerPort=8132"]
@@ -281,7 +283,7 @@ spec:
 				if err != nil {
 					t.Fatal(err)
 				}
-				defer os.Remove(f.Name())
+				defer utiltesting.CloseAndRemove(t, f)
 				if err := ioutil.WriteFile(f.Name(), []byte(tc.contents), os.FileMode(0755)); err != nil {
 					t.Fatal(err)
 				}

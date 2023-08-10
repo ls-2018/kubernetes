@@ -21,7 +21,9 @@ import (
 	"fmt"
 
 	v1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/component-helpers/scheduling/corev1/nodeaffinity"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config"
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/validation"
@@ -58,6 +60,9 @@ const (
 
 	// errReasonEnforced is the reason for added node affinity not matching.
 	errReasonEnforced = "node(s) didn't match scheduler-enforced node affinity"
+
+	// errReasonConflict is the reason for pod's conflicting affinity rules.
+	errReasonConflict = "pod affinity terms conflict"
 )
 
 // Name returns name of the plugin. It is used in logs, etc.
@@ -76,17 +81,63 @@ func (s *preFilterState) Clone() framework.StateData {
 
 // EventsToRegister returns the possible events that may make a Pod
 // failed by this plugin schedulable.
-func (pl *NodeAffinity) EventsToRegister() []framework.ClusterEvent {
-	return []framework.ClusterEvent{
-		{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeLabel},
+func (pl *NodeAffinity) EventsToRegister() []framework.ClusterEventWithHint {
+	return []framework.ClusterEventWithHint{
+		{Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add | framework.Update}},
 	}
 }
 
 // PreFilter builds and writes cycle state used by Filter.
-func (pl *NodeAffinity) PreFilter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod) *framework.Status {
+func (pl *NodeAffinity) PreFilter(ctx context.Context, cycleState *framework.CycleState, pod *v1.Pod) (*framework.PreFilterResult, *framework.Status) {
+	affinity := pod.Spec.Affinity
+	noNodeAffinity := (affinity == nil ||
+		affinity.NodeAffinity == nil ||
+		affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution == nil)
+	if noNodeAffinity && pl.addedNodeSelector == nil && pod.Spec.NodeSelector == nil {
+		// NodeAffinity Filter has nothing to do with the Pod.
+		return nil, framework.NewStatus(framework.Skip)
+	}
+
 	state := &preFilterState{requiredNodeSelectorAndAffinity: nodeaffinity.GetRequiredNodeAffinity(pod)}
 	cycleState.Write(preFilterStateKey, state)
-	return nil
+
+	if noNodeAffinity || len(affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms) == 0 {
+		return nil, nil
+	}
+
+	// Check if there is affinity to a specific node and return it.
+	terms := affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution.NodeSelectorTerms
+	var nodeNames sets.Set[string]
+	for _, t := range terms {
+		var termNodeNames sets.Set[string]
+		for _, r := range t.MatchFields {
+			if r.Key == metav1.ObjectNameField && r.Operator == v1.NodeSelectorOpIn {
+				// The requirements represent ANDed constraints, and so we need to
+				// find the intersection of nodes.
+				s := sets.New(r.Values...)
+				if termNodeNames == nil {
+					termNodeNames = s
+				} else {
+					termNodeNames = termNodeNames.Intersection(s)
+				}
+			}
+		}
+		if termNodeNames == nil {
+			// If this term has no node.Name field affinity,
+			// then all nodes are eligible because the terms are ORed.
+			return nil, nil
+		}
+		nodeNames = nodeNames.Union(termNodeNames)
+	}
+	// If nodeNames is not nil, but length is 0, it means each term have conflicting affinity to node.Name;
+	// therefore, pod will not match any node.
+	if nodeNames != nil && len(nodeNames) == 0 {
+		return nil, framework.NewStatus(framework.UnschedulableAndUnresolvable, errReasonConflict)
+	} else if len(nodeNames) > 0 {
+		return &framework.PreFilterResult{NodeNames: nodeNames}, nil
+	}
+	return nil, nil
+
 }
 
 // PreFilterExtensions not necessary for this plugin as state doesn't depend on pod additions or deletions.
@@ -98,9 +149,7 @@ func (pl *NodeAffinity) PreFilterExtensions() framework.PreFilterExtensions {
 // the plugin's added affinity.
 func (pl *NodeAffinity) Filter(ctx context.Context, state *framework.CycleState, pod *v1.Pod, nodeInfo *framework.NodeInfo) *framework.Status {
 	node := nodeInfo.Node()
-	if node == nil {
-		return framework.NewStatus(framework.Error, "node not found")
-	}
+
 	if pl.addedNodeSelector != nil && !pl.addedNodeSelector.Match(node) {
 		return framework.NewStatus(framework.UnschedulableAndUnresolvable, errReasonEnforced)
 	}

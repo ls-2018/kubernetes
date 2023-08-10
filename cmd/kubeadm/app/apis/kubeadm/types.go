@@ -84,8 +84,14 @@ type ClusterConfiguration struct {
 
 	// Networking holds configuration for the networking topology of the cluster.
 	Networking Networking
+
 	// KubernetesVersion is the target version of the control plane.
 	KubernetesVersion string
+
+	// CIKubernetesVersion is the target CI version of the control plane.
+	// Useful for running kubeadm with CI Kubernetes version.
+	// +k8s:conversion-gen=false
+	CIKubernetesVersion string
 
 	// ControlPlaneEndpoint sets a stable IP address or DNS name for the control plane; it
 	// can be a valid IP address or a RFC-1123 DNS subdomain, both with optional TCP port.
@@ -116,8 +122,8 @@ type ClusterConfiguration struct {
 	CertificatesDir string
 
 	// ImageRepository sets the container registry to pull images from.
-	// If empty, `k8s.gcr.io` will be used by default; in case of kubernetes version is a CI build (kubernetes version starts with `ci/`)
-	// `gcr.io/k8s-staging-ci-images` will be used as a default for control plane components and for kube-proxy, while `k8s.gcr.io`
+	// If empty, `registry.k8s.io` will be used by default; in case of kubernetes version is a CI build (kubernetes version starts with `ci/`)
+	// `gcr.io/k8s-staging-ci-images` will be used as a default for control plane components and for kube-proxy, while `registry.k8s.io`
 	// will be used for all the other images.
 	ImageRepository string
 
@@ -144,6 +150,11 @@ type ControlPlaneComponent struct {
 
 	// ExtraVolumes is an extra set of host volumes, mounted to the control plane component.
 	ExtraVolumes []HostPathMount
+
+	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
+	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
+	// +optional
+	ExtraEnvs []v1.EnvVar
 }
 
 // APIServer holds settings necessary for API server deployments in the cluster
@@ -157,22 +168,8 @@ type APIServer struct {
 	TimeoutForControlPlane *metav1.Duration
 }
 
-// DNSAddOnType defines string identifying DNS add-on types
-// TODO: Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
-type DNSAddOnType string
-
-const (
-	// CoreDNS add-on type
-	// TODO: Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
-	CoreDNS DNSAddOnType = "CoreDNS"
-)
-
 // DNS defines the DNS addon that should be used in the cluster
 type DNS struct {
-	// Type defines the DNS add-on to be used
-	// TODO: Used only in validation over the internal type. Remove with v1beta2 https://github.com/kubernetes/kubeadm/issues/2459
-	Type DNSAddOnType
-
 	// ImageMeta allows to customize the image used for the DNS component
 	ImageMeta `json:",inline"`
 }
@@ -212,19 +209,20 @@ type NodeRegistrationOptions struct {
 	// CRISocket is used to retrieve container runtime info. This information will be annotated to the Node API object, for later re-use
 	CRISocket string
 
-	// Taints specifies the taints the Node API object should be registered with. If this field is unset, i.e. nil, in the `kubeadm init` process
-	// it will be defaulted to []v1.Taint{'node-role.kubernetes.io/master=""'}. If you don't want to taint your control-plane node, set this field to an
-	// empty slice, i.e. `taints: []` in the YAML file. This field is solely used for Node registration.
+	// Taints specifies the taints the Node API object should be registered with. If this field is unset, i.e. nil,
+	// it will be defaulted with a control-plane taint for control-plane nodes. If you don't want to taint your control-plane
+	// node, set this field to an empty slice, i.e. `taints: []` in the YAML file. This field is solely used for Node registration.
 	Taints []v1.Taint
 
 	// KubeletExtraArgs passes through extra arguments to the kubelet. The arguments here are passed to the kubelet command line via the environment file
-	// kubeadm writes at runtime for the kubelet to source. This overrides the generic base-level configuration in the kubelet-config-1.X ConfigMap
+	// kubeadm writes at runtime for the kubelet to source. This overrides the generic base-level configuration in the kubelet-config ConfigMap
 	// Flags have higher priority when parsing. These values are local and specific to the node kubeadm is executing on.
 	// A key in this map is the flag name as it appears on the
 	// command line except without leading dash(es).
 	KubeletExtraArgs map[string]string
 
-	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored when the current node is registered.
+	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored when the current node is registered, e.g. 'IsPrivilegedUser,Swap'.
+	// Value 'all' ignores errors from all checks.
 	IgnorePreflightErrors []string
 
 	// ImagePullPolicy specifies the policy for image pulling during kubeadm "init" and "join" operations.
@@ -269,6 +267,11 @@ type LocalEtcd struct {
 	// A key in this map is the flag name as it appears on the
 	// command line except without leading dash(es).
 	ExtraArgs map[string]string
+
+	// ExtraEnvs is an extra set of environment variables to pass to the control plane component.
+	// Environment variables passed using ExtraEnvs will override any existing environment variables, or *_proxy environment variables that kubeadm adds by default.
+	// +optional
+	ExtraEnvs []v1.EnvVar
 
 	// ServerCertSANs sets extra Subject Alternative Names for the etcd server signing cert.
 	ServerCertSANs []string
@@ -421,8 +424,8 @@ type HostPathMount struct {
 type Patches struct {
 	// Directory is a path to a directory that contains files named "target[suffix][+patchtype].extension".
 	// For example, "kube-apiserver0+merge.yaml" or just "etcd.json". "target" can be one of
-	// "kube-apiserver", "kube-controller-manager", "kube-scheduler", "etcd". "patchtype" can be one
-	// of "strategic" "merge" or "json" and they match the patch formats supported by kubectl.
+	// "kube-apiserver", "kube-controller-manager", "kube-scheduler", "etcd", "kubeletconfiguration".
+	// "patchtype" can be one of "strategic" "merge" or "json" and they match the patch formats supported by kubectl.
 	// The default "patchtype" is "strategic". "extension" must be either "json" or "yaml".
 	// "suffix" is an optional string that can be used to determine which patches are applied
 	// first alpha-numerically.
@@ -461,6 +464,37 @@ type ComponentConfig interface {
 
 	// Get can be used to get the internal configuration in the ComponentConfig
 	Get() interface{}
+}
+
+// +k8s:deepcopy-gen:interfaces=k8s.io/apimachinery/pkg/runtime.Object
+
+// ResetConfiguration contains a list of fields that are specifically "kubeadm reset"-only runtime information.
+type ResetConfiguration struct {
+	metav1.TypeMeta
+
+	// CertificatesDir specifies the directory where the certificates are stored. If specified, it will be cleaned during the reset process.
+	CertificatesDir string
+
+	// CleanupTmpDir specifies whether the "/etc/kubernetes/tmp" directory should be cleaned during the reset process.
+	CleanupTmpDir bool
+
+	// CRISocket is used to retrieve container runtime info and used for the removal of the containers.
+	// If CRISocket is not specified by flag or config file, kubeadm will try to detect one valid CRISocket instead.
+	CRISocket string
+
+	// DryRun tells if the dry run mode is enabled, don't apply any change if it is and just output what would be done.
+	DryRun bool
+
+	// Force flag instructs kubeadm to reset the node without prompting for confirmation.
+	Force bool
+
+	// IgnorePreflightErrors provides a slice of pre-flight errors to be ignored during the reset process, e.g. 'IsPrivilegedUser,Swap'.
+	// Value 'all' ignores errors from all checks.
+	IgnorePreflightErrors []string
+
+	// SkipPhases is a list of phases to skip during command execution.
+	// The list of phases can be obtained with the "kubeadm reset phase --help" command.
+	SkipPhases []string
 }
 
 // ComponentConfigMap is a map between a group name (as in GVK group) and a ComponentConfig

@@ -25,9 +25,9 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"strings"
 	"testing"
@@ -76,7 +76,7 @@ func loadECDSAPrivKey(t *testing.T, filepath string, alg jose.SignatureAlgorithm
 }
 
 func loadKey(t *testing.T, filepath string, alg jose.SignatureAlgorithm, unmarshal func([]byte) (interface{}, error)) *jose.JSONWebKey {
-	data, err := ioutil.ReadFile(filepath)
+	data, err := os.ReadFile(filepath)
 	if err != nil {
 		t.Fatalf("load file: %v", err)
 	}
@@ -296,7 +296,7 @@ func (c *claimsTest) run(t *testing.T) {
 		t.Fatalf("serialize token: %v", err)
 	}
 
-	got, ok, err := a.AuthenticateToken(context.Background(), token)
+	got, ok, err := a.AuthenticateToken(testContext(t), token)
 
 	expectErr := len(c.wantErr) > 0
 
@@ -1580,4 +1580,10 @@ type errTransport string
 
 func (e errTransport) RoundTrip(_ *http.Request) (*http.Response, error) {
 	return nil, fmt.Errorf("%s", e)
+}
+
+func testContext(t *testing.T) context.Context {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	return ctx
 }

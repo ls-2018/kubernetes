@@ -21,10 +21,8 @@ import (
 	"crypto"
 	"crypto/sha256"
 	"crypto/x509"
-	"io/ioutil"
 	"net"
 	"os"
-	"path"
 	"path/filepath"
 	"testing"
 
@@ -264,7 +262,7 @@ func TestWriteCSRFilesIfNotExist(t *testing.T) {
 		{
 			name: "existing CSR is garbage",
 			setupFunc: func(csrPath string) error {
-				return ioutil.WriteFile(path.Join(csrPath, "dummy.csr"), []byte("a--bunch--of-garbage"), os.ModePerm)
+				return os.WriteFile(filepath.Join(csrPath, "dummy.csr"), []byte("a--bunch--of-garbage"), os.ModePerm)
 			},
 			expectedError: true,
 		},

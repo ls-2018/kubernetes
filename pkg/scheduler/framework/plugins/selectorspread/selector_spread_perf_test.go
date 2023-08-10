@@ -23,6 +23,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/klog/v2/ktesting"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/parallelize"
 	"k8s.io/kubernetes/pkg/scheduler/framework/runtime"
@@ -58,7 +59,9 @@ func BenchmarkTestSelectorSpreadPriority(b *testing.B) {
 			client := fake.NewSimpleClientset(
 				&v1.Service{Spec: v1.ServiceSpec{Selector: map[string]string{"foo": ""}}},
 			)
-			ctx := context.Background()
+			_, ctx := ktesting.NewTestContext(b)
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
 			informerFactory := informers.NewSharedInformerFactory(client, 0)
 			_ = informerFactory.Core().V1().Services().Lister()
 			informerFactory.Start(ctx.Done())
@@ -68,7 +71,7 @@ func BenchmarkTestSelectorSpreadPriority(b *testing.B) {
 					b.Errorf("error waiting for informer cache sync")
 				}
 			}
-			fh, _ := runtime.NewFramework(nil, nil, runtime.WithSnapshotSharedLister(snapshot), runtime.WithInformerFactory(informerFactory))
+			fh, _ := runtime.NewFramework(ctx, nil, nil, runtime.WithSnapshotSharedLister(snapshot), runtime.WithInformerFactory(informerFactory))
 			pl, err := New(nil, fh)
 			if err != nil {
 				b.Fatal(err)
@@ -89,7 +92,7 @@ func BenchmarkTestSelectorSpreadPriority(b *testing.B) {
 					gotList[i] = framework.NodeScore{Name: n.Name, Score: score}
 				}
 				parallelizer := parallelize.NewParallelizer(parallelize.DefaultParallelism)
-				parallelizer.Until(ctx, len(filteredNodes), scoreNode)
+				parallelizer.Until(ctx, len(filteredNodes), scoreNode, "")
 				status = plugin.NormalizeScore(ctx, state, pod, gotList)
 				if !status.IsSuccess() {
 					b.Fatal(status)

@@ -18,7 +18,7 @@ package upgrade
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
 	"os"
 	"testing"
 
@@ -29,11 +29,11 @@ import (
 )
 
 func createTestRunDiffFile(contents []byte) (string, error) {
-	file, err := ioutil.TempFile("", "kubeadm-upgrade-diff-config-*.yaml")
+	file, err := os.CreateTemp("", "kubeadm-upgrade-diff-config-*.yaml")
 	if err != nil {
 		return "", errors.Wrap(err, "failed to create temporary test file")
 	}
-	if _, err := file.Write([]byte(contents)); err != nil {
+	if _, err := file.Write(contents); err != nil {
 		return "", errors.Wrap(err, "failed to write to temporary test file")
 	}
 	if err := file.Close(); err != nil {
@@ -46,9 +46,15 @@ func TestRunDiff(t *testing.T) {
 	currentVersion := "v" + constants.CurrentKubernetesVersion.String()
 
 	// create a temporary file with valid ClusterConfiguration
-	testUpgradeDiffConfigContents := []byte(fmt.Sprintf("apiVersion: %s\n"+
-		"kind: ClusterConfiguration\n"+
-		"kubernetesVersion: %s", kubeadmapiv1.SchemeGroupVersion.String(), currentVersion))
+	testUpgradeDiffConfigContents := []byte(fmt.Sprintf(`
+apiVersion: %s
+kind: InitConfiguration
+nodeRegistration:
+  criSocket: %s
+---
+apiVersion: %[1]s
+kind: ClusterConfiguration
+kubernetesVersion: %[3]s`, kubeadmapiv1.SchemeGroupVersion.String(), constants.UnknownCRISocket, currentVersion))
 	testUpgradeDiffConfig, err := createTestRunDiffFile(testUpgradeDiffConfigContents)
 	if err != nil {
 		t.Fatal(err)
@@ -65,7 +71,7 @@ func TestRunDiff(t *testing.T) {
 
 	flags := &diffFlags{
 		cfgPath: "",
-		out:     ioutil.Discard,
+		out:     io.Discard,
 	}
 
 	// TODO: Add test cases for empty cfgPath, it should automatically fetch cfg from cluster

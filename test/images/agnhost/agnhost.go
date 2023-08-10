@@ -28,6 +28,7 @@ import (
 	"k8s.io/kubernetes/test/images/agnhost/dns"
 	"k8s.io/kubernetes/test/images/agnhost/entrypoint-tester"
 	"k8s.io/kubernetes/test/images/agnhost/fakegitserver"
+	grpchealthchecking "k8s.io/kubernetes/test/images/agnhost/grpc-health-checking"
 	"k8s.io/kubernetes/test/images/agnhost/guestbook"
 	"k8s.io/kubernetes/test/images/agnhost/inclusterclient"
 	"k8s.io/kubernetes/test/images/agnhost/liveness"
@@ -44,6 +45,7 @@ import (
 	"k8s.io/kubernetes/test/images/agnhost/porter"
 	resconsumerctrl "k8s.io/kubernetes/test/images/agnhost/resource-consumer-controller"
 	servehostname "k8s.io/kubernetes/test/images/agnhost/serve-hostname"
+	tcpreset "k8s.io/kubernetes/test/images/agnhost/tcp-reset"
 	testwebserver "k8s.io/kubernetes/test/images/agnhost/test-webserver"
 	"k8s.io/kubernetes/test/images/agnhost/webhook"
 )
@@ -80,8 +82,10 @@ func main() {
 	rootCmd.AddCommand(resconsumerctrl.CmdResourceConsumerController)
 	rootCmd.AddCommand(servehostname.CmdServeHostname)
 	rootCmd.AddCommand(testwebserver.CmdTestWebserver)
+	rootCmd.AddCommand(tcpreset.CmdTCPReset)
 	rootCmd.AddCommand(webhook.CmdWebhook)
 	rootCmd.AddCommand(openidmetadata.CmdTestServiceAccountIssuerDiscovery)
+	rootCmd.AddCommand(grpchealthchecking.CmdGrpcHealthChecking)
 
 	// NOTE(claudiub): Some tests are passing logging related flags, so we need to be able to
 	// accept them. This will also include them in the printed help.

@@ -3,11 +3,7 @@
 approvers:
   - dims
   - feiskyer
-  - Random-Liu
-  - derekwaynecarr
-  - dchen1107
-  - yujuhong
-  - resouer
+  - sig-node-approvers
   - sig-node-api-approvers
   - api-approvers
 reviewers:
@@ -15,3 +11,5 @@ reviewers:
   - dims
 labels:
   - sig/node
+emeritus_approvers:
+  - resouer

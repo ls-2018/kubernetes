@@ -31,31 +31,35 @@ import (
 	e2epod "k8s.io/kubernetes/test/e2e/framework/pod"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	imageutils "k8s.io/kubernetes/test/utils/image"
+	admissionapi "k8s.io/pod-security-admission/api"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 )
 
 var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats [Serial]", func() {
 	f := framework.NewDefaultFramework("kubelet-stats-test-windows-serial")
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Describe("Kubelet stats collection for Windows nodes", func() {
+
 		ginkgo.Context("when running 10 pods", func() {
 			// 10 seconds is the default scrape timeout for metrics-server and kube-prometheus
-			ginkgo.It("should return within 10 seconds", func() {
+			ginkgo.It("should return within 10 seconds", func(ctx context.Context) {
 
 				ginkgo.By("Selecting a Windows node")
-				targetNode, err := findWindowsNode(f)
+				targetNode, err := findWindowsNode(ctx, f)
 				framework.ExpectNoError(err, "Error finding Windows node")
 				framework.Logf("Using node: %v", targetNode.Name)
 
 				ginkgo.By("Scheduling 10 pods")
 				powershellImage := imageutils.GetConfig(imageutils.BusyBox)
 				pods := newKubeletStatsTestPods(10, powershellImage, targetNode.Name)
-				f.PodClient().CreateBatch(pods)
+				e2epod.NewPodClient(f).CreateBatch(ctx, pods)
 
 				ginkgo.By("Waiting up to 3 minutes for pods to be running")
 				timeout := 3 * time.Minute
-				e2epod.WaitForPodsRunningReady(f.ClientSet, f.Namespace.Name, 10, 0, timeout, make(map[string]string))
+				err = e2epod.WaitForPodsRunningReady(ctx, f.ClientSet, f.Namespace.Name, 10, 0, timeout)
+				framework.ExpectNoError(err)
 
 				ginkgo.By("Getting kubelet stats 5 times and checking average duration")
 				iterations := 5
@@ -63,7 +67,7 @@ var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats [Serial]", func() {
 
 				for i := 0; i < iterations; i++ {
 					start := time.Now()
-					nodeStats, err := e2ekubelet.GetStatsSummary(f.ClientSet, targetNode.Name)
+					nodeStats, err := e2ekubelet.GetStatsSummary(ctx, f.ClientSet, targetNode.Name)
 					duration := time.Since(start)
 					totalDurationMs += duration.Milliseconds()
 
@@ -111,25 +115,42 @@ var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats [Serial]", func() {
 })
 var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats", func() {
 	f := framework.NewDefaultFramework("kubelet-stats-test-windows")
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 
 	ginkgo.Describe("Kubelet stats collection for Windows nodes", func() {
+
+		ginkgo.Context("when windows is booted", func() {
+			ginkgo.It("should return bootid within 10 seconds", func(ctx context.Context) {
+				ginkgo.By("Selecting a Windows node")
+				targetNode, err := findWindowsNode(ctx, f)
+				framework.ExpectNoError(err, "Error finding Windows node")
+				framework.Logf("Using node: %v", targetNode.Name)
+
+				ginkgo.By("Getting bootid")
+				if len(targetNode.Status.NodeInfo.BootID) == 0 {
+					framework.Failf("expected bootId in kubelet stats, got none")
+				}
+			})
+		})
+
 		ginkgo.Context("when running 3 pods", func() {
 			// 10 seconds is the default scrape timeout for metrics-server and kube-prometheus
-			ginkgo.It("should return within 10 seconds", func() {
+			ginkgo.It("should return within 10 seconds", func(ctx context.Context) {
 
 				ginkgo.By("Selecting a Windows node")
-				targetNode, err := findWindowsNode(f)
+				targetNode, err := findWindowsNode(ctx, f)
 				framework.ExpectNoError(err, "Error finding Windows node")
 				framework.Logf("Using node: %v", targetNode.Name)
 
 				ginkgo.By("Scheduling 3 pods")
 				powershellImage := imageutils.GetConfig(imageutils.BusyBox)
 				pods := newKubeletStatsTestPods(3, powershellImage, targetNode.Name)
-				f.PodClient().CreateBatch(pods)
+				e2epod.NewPodClient(f).CreateBatch(ctx, pods)
 
 				ginkgo.By("Waiting up to 3 minutes for pods to be running")
 				timeout := 3 * time.Minute
-				e2epod.WaitForPodsRunningReady(f.ClientSet, f.Namespace.Name, 3, 0, timeout, make(map[string]string))
+				err = e2epod.WaitForPodsRunningReady(ctx, f.ClientSet, f.Namespace.Name, 3, 0, timeout)
+				framework.ExpectNoError(err)
 
 				ginkgo.By("Getting kubelet stats 1 time")
 				iterations := 1
@@ -137,7 +158,7 @@ var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats", func() {
 
 				for i := 0; i < iterations; i++ {
 					start := time.Now()
-					nodeStats, err := e2ekubelet.GetStatsSummary(f.ClientSet, targetNode.Name)
+					nodeStats, err := e2ekubelet.GetStatsSummary(ctx, f.ClientSet, targetNode.Name)
 					duration := time.Since(start)
 					totalDurationMs += duration.Milliseconds()
 
@@ -185,9 +206,9 @@ var _ = SIGDescribe("[Feature:Windows] Kubelet-Stats", func() {
 })
 
 // findWindowsNode finds a Windows node that is Ready and Schedulable
-func findWindowsNode(f *framework.Framework) (v1.Node, error) {
+func findWindowsNode(ctx context.Context, f *framework.Framework) (v1.Node, error) {
 	selector := labels.Set{"kubernetes.io/os": "windows"}.AsSelector()
-	nodeList, err := f.ClientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{LabelSelector: selector.String()})
+	nodeList, err := f.ClientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{LabelSelector: selector.String()})
 
 	if err != nil {
 		return v1.Node{}, err

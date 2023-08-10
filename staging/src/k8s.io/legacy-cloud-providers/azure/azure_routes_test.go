@@ -28,16 +28,17 @@ import (
 	"time"
 
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2019-06-01/network"
-	"github.com/Azure/go-autorest/autorest/to"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/sets"
+	"k8s.io/apimachinery/pkg/util/wait"
 	cloudprovider "k8s.io/cloud-provider"
 	"k8s.io/legacy-cloud-providers/azure/clients/routetableclient/mockroutetableclient"
 	"k8s.io/legacy-cloud-providers/azure/mockvmsets"
 	"k8s.io/legacy-cloud-providers/azure/retry"
+	"k8s.io/utils/pointer"
 )
 
 func TestDeleteRoute(t *testing.T) {
@@ -138,9 +139,9 @@ func TestCreateRoute(t *testing.T) {
 	nodePrivateIP := "2.4.6.8"
 	networkRoute := &[]network.Route{
 		{
-			Name: to.StringPtr("node"),
+			Name: pointer.String("node"),
 			RoutePropertiesFormat: &network.RoutePropertiesFormat{
-				AddressPrefix:    to.StringPtr("1.2.3.4/24"),
+				AddressPrefix:    pointer.String("1.2.3.4/24"),
 				NextHopIPAddress: &nodePrivateIP,
 				NextHopType:      network.RouteNextHopTypeVirtualAppliance,
 			},
@@ -226,7 +227,7 @@ func TestCreateRoute(t *testing.T) {
 			name:           "CreateRoute should report error if error occurs when invoke GetIPByNodeName",
 			routeTableName: "rt7",
 			getIPError:     fmt.Errorf("getIP error"),
-			expectedErrMsg: fmt.Errorf("timed out waiting for the condition"),
+			expectedErrMsg: wait.ErrWaitTimeout,
 		},
 		{
 			name:               "CreateRoute should add route to cloud.RouteCIDRs if node is unmanaged",
@@ -248,9 +249,9 @@ func TestCreateRoute(t *testing.T) {
 			routeTableName: "rt9",
 			updatedRoute: &[]network.Route{
 				{
-					Name: to.StringPtr("node____123424"),
+					Name: pointer.String("node____123424"),
 					RoutePropertiesFormat: &network.RoutePropertiesFormat{
-						AddressPrefix:    to.StringPtr("1.2.3.4/24"),
+						AddressPrefix:    pointer.String("1.2.3.4/24"),
 						NextHopIPAddress: &nodePrivateIP,
 						NextHopType:      network.RouteNextHopTypeVirtualAppliance,
 					},
@@ -267,14 +268,14 @@ func TestCreateRoute(t *testing.T) {
 
 	for _, test := range testCases {
 		initialTable := network.RouteTable{
-			Name:     to.StringPtr(test.routeTableName),
+			Name:     pointer.String(test.routeTableName),
 			Location: &cloud.Location,
 			RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 				Routes: test.initialRoute,
 			},
 		}
 		updatedTable := network.RouteTable{
-			Name:     to.StringPtr(test.routeTableName),
+			Name:     pointer.String(test.routeTableName),
 			Location: &cloud.Location,
 			RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 				Routes: test.updatedRoute,
@@ -375,9 +376,9 @@ func TestProcessRoutes(t *testing.T) {
 				RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 					Routes: &[]network.Route{
 						{
-							Name: to.StringPtr("name"),
+							Name: pointer.String("name"),
 							RoutePropertiesFormat: &network.RoutePropertiesFormat{
-								AddressPrefix: to.StringPtr("1.2.3.4/16"),
+								AddressPrefix: pointer.String("1.2.3.4/16"),
 							},
 						},
 					},
@@ -398,15 +399,15 @@ func TestProcessRoutes(t *testing.T) {
 				RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 					Routes: &[]network.Route{
 						{
-							Name: to.StringPtr("name"),
+							Name: pointer.String("name"),
 							RoutePropertiesFormat: &network.RoutePropertiesFormat{
-								AddressPrefix: to.StringPtr("1.2.3.4/16"),
+								AddressPrefix: pointer.String("1.2.3.4/16"),
 							},
 						},
 						{
-							Name: to.StringPtr("name2"),
+							Name: pointer.String("name2"),
 							RoutePropertiesFormat: &network.RoutePropertiesFormat{
-								AddressPrefix: to.StringPtr("5.6.7.8/16"),
+								AddressPrefix: pointer.String("5.6.7.8/16"),
 							},
 						},
 					},
@@ -557,14 +558,14 @@ func TestListRoutes(t *testing.T) {
 			name:           "ListRoutes should return correct routes",
 			routeTableName: "rt1",
 			routeTable: network.RouteTable{
-				Name:     to.StringPtr("rt1"),
+				Name:     pointer.String("rt1"),
 				Location: &cloud.Location,
 				RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 					Routes: &[]network.Route{
 						{
-							Name: to.StringPtr("node"),
+							Name: pointer.String("node"),
 							RoutePropertiesFormat: &network.RoutePropertiesFormat{
-								AddressPrefix: to.StringPtr("1.2.3.4/24"),
+								AddressPrefix: pointer.String("1.2.3.4/24"),
 							},
 						},
 					},
@@ -585,14 +586,14 @@ func TestListRoutes(t *testing.T) {
 			unmanagedNodeName: "unmanaged-node",
 			routeCIDRs:        map[string]string{"unmanaged-node": "2.2.3.4/24"},
 			routeTable: network.RouteTable{
-				Name:     to.StringPtr("rt2"),
+				Name:     pointer.String("rt2"),
 				Location: &cloud.Location,
 				RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
 					Routes: &[]network.Route{
 						{
-							Name: to.StringPtr("node"),
+							Name: pointer.String("node"),
 							RoutePropertiesFormat: &network.RoutePropertiesFormat{
-								AddressPrefix: to.StringPtr("1.2.3.4/24"),
+								AddressPrefix: pointer.String("1.2.3.4/24"),
 							},
 						},
 					},
@@ -677,11 +678,11 @@ func TestCleanupOutdatedRoutes(t *testing.T) {
 		{
 			description: "cleanupOutdatedRoutes should delete outdated non-dualstack routes when dualstack is enabled",
 			existingRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			expectedRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
 			},
 			existingNodeNames:   sets.NewString("aks-node1-vmss000000"),
 			enableIPV6DualStack: true,
@@ -690,11 +691,11 @@ func TestCleanupOutdatedRoutes(t *testing.T) {
 		{
 			description: "cleanupOutdatedRoutes should delete outdated dualstack routes when dualstack is disabled",
 			existingRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			expectedRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			existingNodeNames: sets.NewString("aks-node1-vmss000000"),
 			expectedChanged:   true,
@@ -702,12 +703,12 @@ func TestCleanupOutdatedRoutes(t *testing.T) {
 		{
 			description: "cleanupOutdatedRoutes should not delete unmanaged routes when dualstack is enabled",
 			existingRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			expectedRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			existingNodeNames:   sets.NewString("aks-node1-vmss000001"),
 			enableIPV6DualStack: true,
@@ -715,12 +716,12 @@ func TestCleanupOutdatedRoutes(t *testing.T) {
 		{
 			description: "cleanupOutdatedRoutes should not delete unmanaged routes when dualstack is disabled",
 			existingRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			expectedRoutes: []network.Route{
-				{Name: to.StringPtr("aks-node1-vmss000000____xxx")},
-				{Name: to.StringPtr("aks-node1-vmss000000")},
+				{Name: pointer.String("aks-node1-vmss000000____xxx")},
+				{Name: pointer.String("aks-node1-vmss000000")},
 			},
 			existingNodeNames: sets.NewString("aks-node1-vmss000001"),
 		},
@@ -739,5 +740,74 @@ func TestCleanupOutdatedRoutes(t *testing.T) {
 			assert.Equal(t, testCase.expectedChanged, changed)
 			assert.Equal(t, testCase.expectedRoutes, routes)
 		})
+	}
+}
+
+func TestDeleteRouteDualStack(t *testing.T) {
+	ctrl := gomock.NewController(t)
+	defer ctrl.Finish()
+	routeTableClient := mockroutetableclient.NewMockInterface(ctrl)
+
+	cloud := &Cloud{
+		RouteTablesClient: routeTableClient,
+		Config: Config{
+			RouteTableResourceGroup: "foo",
+			RouteTableName:          "bar",
+			Location:                "location",
+		},
+		unmanagedNodes:       sets.NewString(),
+		nodeInformerSynced:   func() bool { return true },
+		ipv6DualStackEnabled: true,
+	}
+	cache, _ := cloud.newRouteTableCache()
+	cloud.rtCache = cache
+	cloud.routeUpdater = newDelayedRouteUpdater(cloud, 100*time.Millisecond)
+	go cloud.routeUpdater.run()
+
+	route := cloudprovider.Route{
+		TargetNode:      "node",
+		DestinationCIDR: "1.2.3.4/24",
+	}
+	routeName := mapNodeNameToRouteName(true, route.TargetNode, route.DestinationCIDR)
+	routeNameIPV4 := mapNodeNameToRouteName(false, route.TargetNode, route.DestinationCIDR)
+	routeTables := network.RouteTable{
+		Name:     &cloud.RouteTableName,
+		Location: &cloud.Location,
+		RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
+			Routes: &[]network.Route{
+				{
+					Name: &routeName,
+				},
+				{
+					Name: &routeNameIPV4,
+				},
+			},
+		},
+	}
+	routeTablesAfterFirstDeletion := network.RouteTable{
+		Name:     &cloud.RouteTableName,
+		Location: &cloud.Location,
+		RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
+			Routes: &[]network.Route{
+				{
+					Name: &routeNameIPV4,
+				},
+			},
+		},
+	}
+	routeTablesAfterSecondDeletion := network.RouteTable{
+		Name:     &cloud.RouteTableName,
+		Location: &cloud.Location,
+		RouteTablePropertiesFormat: &network.RouteTablePropertiesFormat{
+			Routes: &[]network.Route{},
+		},
+	}
+	routeTableClient.EXPECT().Get(gomock.Any(), cloud.RouteTableResourceGroup, cloud.RouteTableName, "").Return(routeTables, nil).AnyTimes()
+	routeTableClient.EXPECT().CreateOrUpdate(gomock.Any(), cloud.RouteTableResourceGroup, cloud.RouteTableName, routeTablesAfterFirstDeletion, "").Return(nil)
+	routeTableClient.EXPECT().CreateOrUpdate(gomock.Any(), cloud.RouteTableResourceGroup, cloud.RouteTableName, routeTablesAfterSecondDeletion, "").Return(nil)
+	err := cloud.DeleteRoute(context.TODO(), "cluster", &route)
+	if err != nil {
+		t.Errorf("unexpected error deleting route: %v", err)
+		t.FailNow()
 	}
 }

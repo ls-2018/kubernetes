@@ -3,13 +3,12 @@
 approvers:
   - deads2k
   - derekwaynecarr
-  - lavalamp
   - mikedanese
   - sttts
   - wojtek-t
+  - jpbetz
 reviewers:
   - thockin
-  - lavalamp
   - smarterclayton
   - wojtek-t
   - deads2k
@@ -18,7 +17,6 @@ reviewers:
   - caesarxuchao
   - mikedanese
   - liggitt
-  - pmorie
   - sttts
   - dchen1107
   - saad-ali
@@ -27,10 +25,11 @@ reviewers:
   - justinsb
   - ncdc
   - mwielgus
-  - timothysc
   - soltysh
   - enj
+  - jpbetz
 labels:
   - sig/api-machinery
 emeritus_approvers:
   - nikhiljindal
+  - lavalamp

@@ -27,14 +27,11 @@ import (
 	"k8s.io/kubernetes/pkg/scheduler/apis/config/validation"
 	"k8s.io/kubernetes/pkg/scheduler/framework"
 	"k8s.io/kubernetes/pkg/scheduler/framework/parallelize"
-	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/feature"
 	"k8s.io/kubernetes/pkg/scheduler/framework/plugins/names"
 )
 
-const (
-	// Name is the name of the plugin used in the plugin registry and configurations.
-	Name = names.InterPodAffinity
-)
+// Name is the name of the plugin used in the plugin registry and configurations.
+const Name = names.InterPodAffinity
 
 var _ framework.PreFilterPlugin = &InterPodAffinity{}
 var _ framework.FilterPlugin = &InterPodAffinity{}
@@ -44,11 +41,10 @@ var _ framework.EnqueueExtensions = &InterPodAffinity{}
 
 // InterPodAffinity is a plugin that checks inter pod affinity
 type InterPodAffinity struct {
-	parallelizer            parallelize.Parallelizer
-	args                    config.InterPodAffinityArgs
-	sharedLister            framework.SharedLister
-	nsLister                listersv1.NamespaceLister
-	enableNamespaceSelector bool
+	parallelizer parallelize.Parallelizer
+	args         config.InterPodAffinityArgs
+	sharedLister framework.SharedLister
+	nsLister     listersv1.NamespaceLister
 }
 
 // Name returns name of the plugin. It is used in logs, etc.
@@ -58,8 +54,8 @@ func (pl *InterPodAffinity) Name() string {
 
 // EventsToRegister returns the possible events that may make a failed Pod
 // schedulable
-func (pl *InterPodAffinity) EventsToRegister() []framework.ClusterEvent {
-	return []framework.ClusterEvent{
+func (pl *InterPodAffinity) EventsToRegister() []framework.ClusterEventWithHint {
+	return []framework.ClusterEventWithHint{
 		// All ActionType includes the following events:
 		// - Delete. An unschedulable Pod may fail due to violating an existing Pod's anti-affinity constraints,
 		// deleting an existing Pod may make it schedulable.
@@ -67,13 +63,13 @@ func (pl *InterPodAffinity) EventsToRegister() []framework.ClusterEvent {
 		// an unschedulable Pod schedulable.
 		// - Add. An unschedulable Pod may fail due to violating pod-affinity constraints,
 		// adding an assigned Pod may make it schedulable.
-		{Resource: framework.Pod, ActionType: framework.All},
-		{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeLabel},
+		{Event: framework.ClusterEvent{Resource: framework.Pod, ActionType: framework.All}},
+		{Event: framework.ClusterEvent{Resource: framework.Node, ActionType: framework.Add | framework.UpdateNodeLabel}},
 	}
 }
 
 // New initializes a new plugin and returns it.
-func New(plArgs runtime.Object, h framework.Handle, fts feature.Features) (framework.Plugin, error) {
+func New(plArgs runtime.Object, h framework.Handle) (framework.Plugin, error) {
 	if h.SnapshotSharedLister() == nil {
 		return nil, fmt.Errorf("SnapshotSharedlister is nil")
 	}
@@ -85,15 +81,12 @@ func New(plArgs runtime.Object, h framework.Handle, fts feature.Features) (frame
 		return nil, err
 	}
 	pl := &InterPodAffinity{
-		parallelizer:            h.Parallelizer(),
-		args:                    args,
-		sharedLister:            h.SnapshotSharedLister(),
-		enableNamespaceSelector: fts.EnablePodAffinityNamespaceSelector,
+		parallelizer: h.Parallelizer(),
+		args:         args,
+		sharedLister: h.SnapshotSharedLister(),
+		nsLister:     h.SharedInformerFactory().Core().V1().Namespaces().Lister(),
 	}
 
-	if pl.enableNamespaceSelector {
-		pl.nsLister = h.SharedInformerFactory().Core().V1().Namespaces().Lister()
-	}
 	return pl, nil
 }
 
@@ -129,12 +122,12 @@ func (pl *InterPodAffinity) mergeAffinityTermNamespacesIfNotEmpty(at *framework.
 
 // GetNamespaceLabelsSnapshot returns a snapshot of the labels associated with
 // the namespace.
-func GetNamespaceLabelsSnapshot(ns string, nsLister listersv1.NamespaceLister) (nsLabels labels.Set) {
+func GetNamespaceLabelsSnapshot(logger klog.Logger, ns string, nsLister listersv1.NamespaceLister) (nsLabels labels.Set) {
 	podNS, err := nsLister.Get(ns)
 	if err == nil {
 		// Create and return snapshot of the labels.
 		return labels.Merge(podNS.Labels, nil)
 	}
-	klog.ErrorS(err, "getting namespace, assuming empty set of namespace labels", "namespace", ns)
+	logger.V(3).Info("getting namespace, assuming empty set of namespace labels", "namespace", ns, "err", err)
 	return
 }

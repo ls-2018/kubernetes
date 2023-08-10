@@ -27,7 +27,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/cli-runtime/pkg/genericclioptions"
-	"k8s.io/cli-runtime/pkg/resource"
+	"k8s.io/cli-runtime/pkg/genericiooptions"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 	cmdutil "k8s.io/kubectl/pkg/cmd/util"
 	"k8s.io/kubectl/pkg/scheme"
@@ -54,7 +54,7 @@ var (
 		by creating a dockercfg secret and attaching it to your service account.`))
 
 	secretForDockerRegistryExample = templates.Examples(i18n.T(`
-		  # If you don't already have a .dockercfg file, you can create a dockercfg secret directly by using:
+		  # If you do not already have a .dockercfg file, create a dockercfg secret directly
 		  kubectl create secret docker-registry my-secret --docker-server=DOCKER_REGISTRY_SERVER --docker-username=DOCKER_USER --docker-password=DOCKER_PASSWORD --docker-email=DOCKER_EMAIL
 
 		  # Create a new secret named my-secret from ~/.docker/config.json
@@ -108,15 +108,15 @@ type CreateSecretDockerRegistryOptions struct {
 	Namespace        string
 	EnforceNamespace bool
 
-	Client         corev1client.CoreV1Interface
-	DryRunStrategy cmdutil.DryRunStrategy
-	DryRunVerifier *resource.DryRunVerifier
+	Client              corev1client.CoreV1Interface
+	DryRunStrategy      cmdutil.DryRunStrategy
+	ValidationDirective string
 
-	genericclioptions.IOStreams
+	genericiooptions.IOStreams
 }
 
 // NewSecretDockerRegistryOptions creates a new *CreateSecretDockerRegistryOptions with default value
-func NewSecretDockerRegistryOptions(ioStreams genericclioptions.IOStreams) *CreateSecretDockerRegistryOptions {
+func NewSecretDockerRegistryOptions(ioStreams genericiooptions.IOStreams) *CreateSecretDockerRegistryOptions {
 	return &CreateSecretDockerRegistryOptions{
 		Server:     "https://index.docker.io/v1/",
 		PrintFlags: genericclioptions.NewPrintFlags("created").WithTypeSetter(scheme.Scheme),
@@ -125,7 +125,7 @@ func NewSecretDockerRegistryOptions(ioStreams genericclioptions.IOStreams) *Crea
 }
 
 // NewCmdCreateSecretDockerRegistry is a macro command for creating secrets to work with Docker registries
-func NewCmdCreateSecretDockerRegistry(f cmdutil.Factory, ioStreams genericclioptions.IOStreams) *cobra.Command {
+func NewCmdCreateSecretDockerRegistry(f cmdutil.Factory, ioStreams genericiooptions.IOStreams) *cobra.Command {
 	o := NewSecretDockerRegistryOptions(ioStreams)
 
 	cmd := &cobra.Command{
@@ -184,18 +184,6 @@ func (o *CreateSecretDockerRegistryOptions) Complete(f cmdutil.Factory, cmd *cob
 		return err
 	}
 
-	dynamicClient, err := f.DynamicClient()
-	if err != nil {
-		return err
-	}
-
-	discoveryClient, err := f.ToDiscoveryClient()
-	if err != nil {
-		return err
-	}
-
-	o.DryRunVerifier = resource.NewDryRunVerifier(dynamicClient, discoveryClient)
-
 	o.Namespace, o.EnforceNamespace, err = f.ToRawKubeConfigLoader().Namespace()
 	if err != nil {
 		return err
@@ -209,6 +197,11 @@ func (o *CreateSecretDockerRegistryOptions) Complete(f cmdutil.Factory, cmd *cob
 
 	o.PrintObj = func(obj runtime.Object) error {
 		return printer.PrintObj(obj, o.Out)
+	}
+
+	o.ValidationDirective, err = cmdutil.GetValidationDirective(cmd)
+	if err != nil {
+		return err
 	}
 
 	return nil
@@ -241,11 +234,8 @@ func (o *CreateSecretDockerRegistryOptions) Run() error {
 		if o.FieldManager != "" {
 			createOptions.FieldManager = o.FieldManager
 		}
+		createOptions.FieldValidation = o.ValidationDirective
 		if o.DryRunStrategy == cmdutil.DryRunServer {
-			err := o.DryRunVerifier.HasSupport(secretDockerRegistry.GroupVersionKind())
-			if err != nil {
-				return err
-			}
 			createOptions.DryRun = []string{metav1.DryRunAll}
 		}
 		secretDockerRegistry, err = o.Client.Secrets(o.Namespace).Create(context.TODO(), secretDockerRegistry, createOptions)

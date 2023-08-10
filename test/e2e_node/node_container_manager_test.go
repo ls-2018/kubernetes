@@ -22,24 +22,25 @@ package e2enode
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	kubeletconfig "k8s.io/kubernetes/pkg/kubelet/apis/config"
 	"k8s.io/kubernetes/pkg/kubelet/cm"
 	"k8s.io/kubernetes/pkg/kubelet/stats/pidlimit"
+	admissionapi "k8s.io/pod-security-admission/api"
 
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eskipper "k8s.io/kubernetes/test/e2e/framework/skipper"
 	e2enodekubelet "k8s.io/kubernetes/test/e2e_node/kubeletconfig"
 
-	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 )
 
@@ -64,16 +65,16 @@ func setDesiredConfiguration(initialConfig *kubeletconfig.KubeletConfiguration) 
 
 var _ = SIGDescribe("Node Container Manager [Serial]", func() {
 	f := framework.NewDefaultFramework("node-container-manager")
+	f.NamespacePodSecurityLevel = admissionapi.LevelPrivileged
 	ginkgo.Describe("Validate Node Allocatable [NodeFeature:NodeAllocatable]", func() {
-		ginkgo.It("sets up the node and runs the test", func() {
-			framework.ExpectNoError(runTest(f))
+		ginkgo.It("sets up the node and runs the test", func(ctx context.Context) {
+			framework.ExpectNoError(runTest(ctx, f))
 		})
 	})
-
 })
 
 func expectFileValToEqual(filePath string, expectedValue, delta int64) error {
-	out, err := ioutil.ReadFile(filePath)
+	out, err := os.ReadFile(filePath)
 	if err != nil {
 		return fmt.Errorf("failed to read file %q", filePath)
 	}
@@ -158,14 +159,14 @@ func convertSharesToWeight(shares int64) int64 {
 	return 1 + ((shares-2)*9999)/262142
 }
 
-func runTest(f *framework.Framework) error {
+func runTest(ctx context.Context, f *framework.Framework) error {
 	var oldCfg *kubeletconfig.KubeletConfiguration
 	subsystems, err := cm.GetCgroupSubsystems()
 	if err != nil {
 		return err
 	}
 	// Get current kubelet configuration
-	oldCfg, err = getCurrentKubeletConfig()
+	oldCfg, err = getCurrentKubeletConfig(ctx)
 	if err != nil {
 		return err
 	}
@@ -182,15 +183,15 @@ func runTest(f *framework.Framework) error {
 	// Create a cgroup manager object for manipulating cgroups.
 	cgroupManager := cm.NewCgroupManager(subsystems, oldCfg.CgroupDriver)
 
-	defer destroyTemporaryCgroupsForReservation(cgroupManager)
-	defer func() {
+	ginkgo.DeferCleanup(destroyTemporaryCgroupsForReservation, cgroupManager)
+	ginkgo.DeferCleanup(func(ctx context.Context) {
 		if oldCfg != nil {
 			// Update the Kubelet configuration.
 			ginkgo.By("Stopping the kubelet")
 			startKubelet := stopKubelet()
 
 			// wait until the kubelet health check will fail
-			gomega.Eventually(func() bool {
+			gomega.Eventually(ctx, func() bool {
 				return kubeletHealthCheck(kubeletHealthCheckURL)
 			}, time.Minute, time.Second).Should(gomega.BeFalse())
 
@@ -200,11 +201,11 @@ func runTest(f *framework.Framework) error {
 			startKubelet()
 
 			// wait until the kubelet health check will succeed
-			gomega.Eventually(func() bool {
+			gomega.Eventually(ctx, func(ctx context.Context) bool {
 				return kubeletHealthCheck(kubeletHealthCheckURL)
 			}, 2*time.Minute, 5*time.Second).Should(gomega.BeTrue())
 		}
-	}()
+	})
 	if err := createTemporaryCgroupsForReservation(cgroupManager); err != nil {
 		return err
 	}
@@ -217,7 +218,7 @@ func runTest(f *framework.Framework) error {
 	startKubelet := stopKubelet()
 
 	// wait until the kubelet health check will fail
-	gomega.Eventually(func() bool {
+	gomega.Eventually(ctx, func() bool {
 		return kubeletHealthCheck(kubeletHealthCheckURL)
 	}, time.Minute, time.Second).Should(gomega.BeFalse())
 
@@ -227,7 +228,7 @@ func runTest(f *framework.Framework) error {
 	startKubelet()
 
 	// wait until the kubelet health check will succeed
-	gomega.Eventually(func() bool {
+	gomega.Eventually(ctx, func() bool {
 		return kubeletHealthCheck(kubeletHealthCheckURL)
 	}, 2*time.Minute, 5*time.Second).Should(gomega.BeTrue())
 
@@ -250,8 +251,8 @@ func runTest(f *framework.Framework) error {
 
 	// TODO: Update cgroupManager to expose a Status interface to get current Cgroup Settings.
 	// The node may not have updated capacity and allocatable yet, so check that it happens eventually.
-	gomega.Eventually(func() error {
-		nodeList, err := f.ClientSet.CoreV1().Nodes().List(context.TODO(), metav1.ListOptions{})
+	gomega.Eventually(ctx, func(ctx context.Context) error {
+		nodeList, err := f.ClientSet.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 		if err != nil {
 			return err
 		}
@@ -305,7 +306,7 @@ func runTest(f *framework.Framework) error {
 			return fmt.Errorf("Unexpected memory allocatable value exposed by the node. Expected: %v, got: %v, capacity: %v", allocatableMemory, schedulerAllocatable[v1.ResourceMemory], capacity[v1.ResourceMemory])
 		}
 		return nil
-	}, time.Minute, 5*time.Second).Should(gomega.BeNil())
+	}, time.Minute, 5*time.Second).Should(gomega.Succeed())
 
 	cgroupPath := ""
 	if currentConfig.CgroupDriver == "systemd" {

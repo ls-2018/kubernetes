@@ -18,8 +18,10 @@ package services
 
 import (
 	"fmt"
-	"io/ioutil"
 	"os"
+	"testing"
+
+	utiltesting "k8s.io/client-go/util/testing"
 
 	"k8s.io/apiserver/pkg/storage/storagebackend"
 	netutils "k8s.io/utils/net"
@@ -71,30 +73,32 @@ func (a *APIServer) Start() error {
 	o.ServiceClusterIPRanges = ipnet.String()
 	o.AllowPrivileged = true
 	if err := generateTokenFile(tokenFilePath); err != nil {
-		return fmt.Errorf("failed to generate token file %s: %v", tokenFilePath, err)
+		return fmt.Errorf("failed to generate token file %s: %w", tokenFilePath, err)
 	}
 	o.Authentication.TokenFile.TokenFile = tokenFilePath
 	o.Admission.GenericAdmission.DisablePlugins = []string{"ServiceAccount", "TaintNodesByCondition"}
 
-	saSigningKeyFile, err := ioutil.TempFile("/tmp", "insecure_test_key")
+	saSigningKeyFile, err := os.CreateTemp("/tmp", "insecure_test_key")
 	if err != nil {
-		return fmt.Errorf("create temp file failed: %v", err)
+		return fmt.Errorf("create temp file failed: %w", err)
 	}
-	defer os.RemoveAll(saSigningKeyFile.Name())
-	if err = ioutil.WriteFile(saSigningKeyFile.Name(), []byte(ecdsaPrivateKey), 0666); err != nil {
-		return fmt.Errorf("write file %s failed: %v", saSigningKeyFile.Name(), err)
+	defer utiltesting.CloseAndRemove(&testing.T{}, saSigningKeyFile)
+	if err = os.WriteFile(saSigningKeyFile.Name(), []byte(ecdsaPrivateKey), 0666); err != nil {
+		return fmt.Errorf("write file %s failed: %w", saSigningKeyFile.Name(), err)
 	}
 	o.ServiceAccountSigningKeyFile = saSigningKeyFile.Name()
 	o.Authentication.APIAudiences = []string{"https://foo.bar.example.com"}
 	o.Authentication.ServiceAccounts.Issuers = []string{"https://foo.bar.example.com"}
 	o.Authentication.ServiceAccounts.KeyFiles = []string{saSigningKeyFile.Name()}
 
+	o.KubeletConfig.PreferredAddressTypes = []string{"InternalIP"}
+
 	errCh := make(chan error)
 	go func() {
 		defer close(errCh)
-		completedOptions, err := apiserver.Complete(o)
+		completedOptions, err := o.Complete()
 		if err != nil {
-			errCh <- fmt.Errorf("set apiserver default options error: %v", err)
+			errCh <- fmt.Errorf("set apiserver default options error: %w", err)
 			return
 		}
 		if errs := completedOptions.Validate(); len(errs) != 0 {
@@ -104,7 +108,7 @@ func (a *APIServer) Start() error {
 
 		err = apiserver.Run(completedOptions, a.stopCh)
 		if err != nil {
-			errCh <- fmt.Errorf("run apiserver error: %v", err)
+			errCh <- fmt.Errorf("run apiserver error: %w", err)
 			return
 		}
 	}()
@@ -143,5 +147,5 @@ func getAPIServerHealthCheckURL() string {
 
 func generateTokenFile(tokenFilePath string) error {
 	tokenFile := fmt.Sprintf("%s,kubelet,uid,system:masters\n", framework.TestContext.BearerToken)
-	return ioutil.WriteFile(tokenFilePath, []byte(tokenFile), 0644)
+	return os.WriteFile(tokenFilePath, []byte(tokenFile), 0644)
 }

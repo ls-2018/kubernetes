@@ -53,7 +53,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -81,7 +80,7 @@ const dockerTokenLoginUsernameGUID = "00000000-0000-0000-0000-000000000000"
 
 var client = &http.Client{
 	Transport: utilnet.SetTransportDefaults(&http.Transport{}),
-	Timeout:   time.Second * 10,
+	Timeout:   time.Second * 60,
 }
 
 func receiveChallengeFromLoginServer(serverAddress string) (*authDirective, error) {
@@ -185,7 +184,7 @@ func performTokenExchange(
 
 	var content []byte
 	limitedReader := &io.LimitedReader{R: exchange.Body, N: maxReadLength}
-	if content, err = ioutil.ReadAll(limitedReader); err != nil {
+	if content, err = io.ReadAll(limitedReader); err != nil {
 		return "", fmt.Errorf("Www-Authenticate: error reading response from %s", authEndpoint)
 	}
 

@@ -19,7 +19,6 @@ package cmd
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -46,6 +45,9 @@ func generateTestKubeadmConfig(dir, id, certDir, clusterName string) (string, er
 			AdvertiseAddress: "1.2.3.4",
 			BindPort:         1234,
 		},
+		NodeRegistration: kubeadmapiv1.NodeRegistrationOptions{
+			CRISocket: kubeadmconstants.UnknownCRISocket,
+		},
 	}
 	clusterCfg := kubeadmapiv1.ClusterConfiguration{
 		TypeMeta: metav1.TypeMeta{
@@ -70,7 +72,7 @@ func generateTestKubeadmConfig(dir, id, certDir, clusterName string) (string, er
 	}
 	buf.Write(data)
 
-	err = ioutil.WriteFile(cfgPath, buf.Bytes(), 0644)
+	err = os.WriteFile(cfgPath, buf.Bytes(), 0644)
 	return cfgPath, err
 }
 
